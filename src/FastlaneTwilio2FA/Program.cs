@@ -18,7 +18,7 @@ namespace FastlaneTwilio2FA
         private static string TwilioAccountSid;
         private static string TwilioAuthToken;
 
-        static void Main(string[] args)
+        public static async Task Main(string[] args)
         {
             // We don't use some of these variables but they have to exist for our call to fastlane to be successful.
             AppleUserId = EnvironmentVariableMagic("FASTLANE_USER", args, 0);
@@ -38,15 +38,40 @@ namespace FastlaneTwilio2FA
 
             TwilioClient.Init(TwilioAccountSid, TwilioAuthToken);
 
-            RunSpaceAuth();
+            //await JustWriteLastMessage();
+
+            await RunSpaceAuth();
         }
 
-        private static async void RunSpaceAuth()
+        private static async Task JustWriteLastMessage()
+        {
+            // Get messages.
+            var messages = await MessageResource.ReadAsync(
+                limit: 50
+            );
+
+            // Sort messages.
+            var mostRecentMessage = messages
+                .Where(x => x.Direction == MessageResource.DirectionEnum.Inbound)
+                .OrderByDescending(x => x.DateCreated)
+                .FirstOrDefault();
+
+            // Looks like we didn't find one.
+            if (mostRecentMessage == null)
+            {
+                Console.WriteLine("No messages found.");
+                return;
+            }
+
+            Console.WriteLine(mostRecentMessage.Body);
+        }
+
+        private static async Task RunSpaceAuth()
         {
             // Run Fastlane.
             var info = new ProcessStartInfo("fastlane", $"spaceauth -u {AppleUserId}");
             info.RedirectStandardInput = true;
-            info.RedirectStandardOutput = true;
+            info.RedirectStandardOutput = false;
 
             var process = Process.Start(info);
 
@@ -56,12 +81,26 @@ namespace FastlaneTwilio2FA
             await Task.Delay(TimeSpan.FromSeconds(10));
 
             // Looks like we didn't need 2FA after all.
-            if (process.HasExited && process.ExitCode == 0)
-                return;
+            if (process.HasExited)
+            {
+                if (process.ExitCode == 0)
+                {
+                    Environment.ExitCode = 0;
+                    return;
+                }
+                else
+                {
+                    await Console.Error.WriteLineAsync("Call to fastlane failed.");
+                    Environment.ExitCode = process.ExitCode;
+                }
+            }
 
             // Wait for a 2FA SMS to arrive.
             while (true)
             {
+                // Wait a second...
+                await Task.Delay(1000);
+
                 // Get messages.
                 var messages = await MessageResource.ReadAsync(
                     dateSentAfter: DateTime.UtcNow.Date.AddDays(-1),
@@ -74,6 +113,7 @@ namespace FastlaneTwilio2FA
 
                 // Sort messages.
                 var mostRecentMessage = messages
+                    .Where(x => x.Direction == MessageResource.DirectionEnum.Inbound)
                     .Where(x => x.Body.Contains("Your Apple ID Verification Code", StringComparison.OrdinalIgnoreCase))
                     .Where(x => regex.IsMatch(x.Body))
                     .OrderByDescending(x => x.DateCreated)
