@@ -20,12 +20,13 @@ namespace FastlaneTwilio2FA
 
         static void Main(string[] args)
         {
-            AppleUserId   = GetEnvironmentVariableOrParameter("FASTLANE_USER", args, 0);
-            ApplePassword = GetEnvironmentVariableOrParameter("FASTLANE_PASSWORD", args, 1);
-            PhoneNumber = GetEnvironmentVariableOrParameter("SPACESHIP_2FA_SMS_DEFAULT_PHONE_NUMBER", args, 2);
+            // We don't use some of these variables but they have to exist for our call to fastlane to be successful.
+            AppleUserId = EnvironmentVariableMagic("FASTLANE_USER", args, 0);
+            ApplePassword = EnvironmentVariableMagic("FASTLANE_PASSWORD", args, 1);
+            PhoneNumber = EnvironmentVariableMagic("SPACESHIP_2FA_SMS_DEFAULT_PHONE_NUMBER", args, 2);
 
-            TwilioAccountSid = GetEnvironmentVariableOrParameter("2FA_TWILIO_ACCOUNT_SID", args, 3);
-            TwilioAuthToken = GetEnvironmentVariableOrParameter("2FA_TWILIO_AUTH_TOKEN", args, 4);
+            TwilioAccountSid = EnvironmentVariableMagic("2FA_TWILIO_ACCOUNT_SID", args, 3);
+            TwilioAuthToken = EnvironmentVariableMagic("2FA_TWILIO_AUTH_TOKEN", args, 4);
 
             if (string.IsNullOrWhiteSpace(AppleUserId) || string.IsNullOrWhiteSpace(ApplePassword) || string.IsNullOrWhiteSpace(PhoneNumber) ||
                 string.IsNullOrWhiteSpace(TwilioAccountSid) || string.IsNullOrWhiteSpace(TwilioAuthToken))
@@ -101,12 +102,18 @@ namespace FastlaneTwilio2FA
             }
         }
 
-        private static string GetEnvironmentVariableOrParameter(string variableName, object[] args, int index)
+        private static string EnvironmentVariableMagic(string variableName, object[] args, int index)
         {
-            if (args.Length < index + 1)
-                return null;
+            // We've been passed an argument and will now shove it in an environment variable to ensure fastlane has access.
+            if (args.Length > index && string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable(variableName)))
+            {
+                var value = args[index]?.ToString();
+                Environment.SetEnvironmentVariable(variableName, value, EnvironmentVariableTarget.Process);
 
-            return Environment.GetEnvironmentVariable(variableName);
+                return value;
+            }
+            else
+                return Environment.GetEnvironmentVariable(variableName);
         }
     }
 }
